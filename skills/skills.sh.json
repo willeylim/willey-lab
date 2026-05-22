@@ -8,6 +8,13 @@
       "skills": [
         "anti-sycophancy"
       ]
+    },
+    {
+      "title": "Code Quality",
+      "description": "Standards for writing clean, maintainable, production-quality code.",
+      "skills": [
+        "coding-standards"
+      ]
     }
   ]
 }

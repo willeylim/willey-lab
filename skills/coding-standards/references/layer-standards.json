@@ -1,0 +1,39 @@
+{
+  "_comment": "Maps file patterns to layers and their applicable standards files.",
+  "file-patterns": {
+    "backend": [
+      "*.service.ts", "*.controller.ts", "*.module.ts", "*.guard.ts",
+      "*.pipe.ts", "*.decorator.ts", "*.go", "*.rs", "*.php", "*.py",
+      "app/Http/**", "app/Models/**", "app/Providers/**"
+    ],
+    "frontend": [
+      "components/**/*.ts", "components/**/*.tsx",
+      "hooks/**", "use*.ts", "use*.tsx",
+      "utils/**", "lib/**", "types/**"
+    ],
+    "ui": [
+      "*.css", "*.scss", "*.module.css", "*.module.scss",
+      "components/ui/**",
+      "*.tsx", "*.vue", "*.svelte"
+    ]
+  },
+  "layer-standards": {
+    "backend": [
+      "functions.md", "naming.md", "error-handling.md",
+      "objects-and-data.md", "formatting.md", "code-principles.md"
+    ],
+    "frontend": [
+      "functions.md", "naming.md", "error-handling.md",
+      "objects-and-data.md", "formatting.md", "code-principles.md",
+      "components.md", "typescript.md"
+    ],
+    "ui": [
+      "ui-ux.md"
+    ]
+  },
+  "layer-skills": {
+    "backend": ["nestjs", "go", "rust", "laravel", "python", "php"],
+    "frontend": ["nextjs", "react", "typescript"],
+    "ui": ["ui"]
+  }
+}
