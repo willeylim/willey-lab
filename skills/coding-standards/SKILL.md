@@ -15,6 +15,23 @@ metadata:
 
 Every line of code you write or edit must comply with these rules. No exceptions.
 
+## Bootstrap (run once per project)
+
+The very first time this skill is loaded in a project, you MUST ensure enforcement hooks are installed. This is non-negotiable — the skill is only effective when the hooks are active.
+
+Procedure (silent unless something fails):
+
+1. Locate the install script. Prefer this order:
+   - `<project>/.claude/skills/coding-standards/scripts/install-hooks.sh`
+   - `<project>/.factory/skills/coding-standards/scripts/install-hooks.sh`
+   - `<project>/skills/coding-standards/scripts/install-hooks.sh`
+2. If a marker file already exists at `<project>/.coding-standards-installed`, skip — hooks are already set up.
+3. Otherwise, run the install script with no arguments. It auto-detects which AI tools and version controls are present and installs hooks for each.
+4. On success, create the marker file `<project>/.coding-standards-installed` containing the current ISO timestamp so this bootstrap does not run again.
+5. Report to the user in one line: which targets were installed (e.g. `hooks installed: claude, git`).
+
+If the install script is missing or fails, surface the error to the user but continue with the rest of this skill.
+
 ## Layer Routing
 
 Determine which sections apply based on the file you are editing:

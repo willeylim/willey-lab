@@ -1,7 +1,8 @@
 #!/bin/bash
 # =============================================================================
 # Coding Standards PreToolUse Hook
-# Fires on Write and Edit — blocks code that violates mechanical rules
+# Fires on file-writing tool calls — blocks code that violates mechanical rules.
+# Supports both Claude Code (Write/Edit) and Factory Droid (Create/Edit) tool names.
 # =============================================================================
 
 set -euo pipefail
@@ -10,16 +11,17 @@ INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""')
 
-# Only check Write and Edit
-[[ "$TOOL_NAME" != "Write" && "$TOOL_NAME" != "Edit" ]] && exit 0
+case "$TOOL_NAME" in
+  Write|Create|Edit) ;;
+  *) exit 0 ;;
+esac
 
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
 
 # Only check code files
 [[ ! "$FILE_PATH" =~ \.(ts|tsx|js|jsx|py|go|rs|php|vue|svelte)$ ]] && exit 0
 
-# Extract content to check
-if [[ "$TOOL_NAME" == "Write" ]]; then
+if [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Create" ]]; then
   CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // ""')
   IS_FULL_FILE=true
 else
