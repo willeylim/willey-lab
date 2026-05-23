@@ -31,20 +31,101 @@ Full routing config: `references/layer-standards.json`
 
 ---
 
-## Section A — Hook-Enforced Rules
+## Scope Definitions
 
-These rules are checked by scripts on every Write and Edit. Violations block the operation.
-Write compliant code the first time. Do not write violations expecting to fix later.
+- **"touched in the diff"** = the function/component/class contains at least one changed, added, or deleted line.
+- **"introduced in the diff"** = the function/component/class is entirely new (did not exist before).
+- **"in the diff"** = anywhere in the set of changed files.
+
+---
+
+## Write Mode vs Review Mode
+
+**Write Mode** — When writing or editing code, apply all applicable rules proactively. Write compliant code the first time. If you catch a violation in code you just wrote, fix it immediately before moving on.
+
+**Review Mode** — When reviewing code (diff, PR, or file), follow the Review Protocol below. Iterate through every applicable rule systematically. Never skip a rule silently.
+
+---
+
+## Review Protocol (Mandatory)
+
+When this skill is invoked for code review, you MUST execute these steps in order. Do not freelance — follow the procedure.
+
+### Step 1 — Scope
+List all files in the diff. For each file, determine its layer using the Layer Routing table above. Report the mapping.
+
+### Step 2 — Filter
+Apply CS-SCOPE first. List any excluded files and why. Remaining files proceed to review.
+
+### Step 3 — Load References
+For each applicable layer, you MUST read the full reference file from `references/`. The summaries in this document are abbreviated — the reference files contain the full check procedure, applicability guards, and edge cases required to apply each rule correctly. Do NOT rely solely on the summaries below.
+
+### Step 4 — Systematic Check
+For each applicable rule, in rule-ID order:
+1. State the rule ID and name.
+2. Apply the `applicability:` guard from the reference file. If the rule does not apply to any file in the diff, report SKIPPED with reason.
+3. Check every file/function/component the rule covers.
+4. Report each finding as: `file:line` — violation description.
+5. If no violations found, report PASS.
+
+Never skip a rule without reporting SKIPPED with a reason.
+
+### Step 5 — Write Review to File
+
+Write your review output to a file using the Write tool. Use the path `.coding-standards-review.md`. The file must use this exact format — the validation hook parses it:
+
+```
+## Coding Standards Review
+
+**Files reviewed:** [list with layers]
+**Files excluded (CS-SCOPE):** [list with reasons, or "None"]
+
+### Findings
+
+**[RULE-ID] Rule Name** — PASS | MAJOR(n) | MINOR(n) | SKIPPED(reason)
+- `file.tsx:42` — Description of violation
+
+(repeat for every applicable rule)
+
+### Summary
+| Severity | Count |
+|----------|-------|
+| MAJOR    | n     |
+| MINOR    | n     |
+| PASS     | n     |
+| SKIPPED  | n     |
+
+Rules checked: n/N applicable
+```
+
+### Step 6 — Validation
+
+After writing the review file, a PostToolUse hook automatically validates that every applicable rule is covered. If the hook reports missing rules, add findings for those rules and re-write the file.
+
+If hooks are not installed, run the validation manually:
+```bash
+bash scripts/validate-review.sh .coding-standards-review.md
+```
+
+### Step 7 — Completion
+A review is complete only when:
+1. Every applicable rule has been reported as PASS, MAJOR, MINOR, or SKIPPED.
+2. The validation script exits 0 (PASS).
+3. All MAJOR/MINOR findings include a `file:line` citation.
+
+If you have not reported on a rule, you have not finished the review.
+
+---
+
+## Section A — Mechanical Rules
+
+These rules have deterministic right/wrong answers. Some are enforced by hook scripts, some require agent self-enforcement because they need context a shell script cannot detect.
+
+### A-HARD — Hook blocks the write on every Write and Edit
 
 **TS-001** No `any` type. Every `: any`, `as any`, or `<any>` is blocked. Use a specific type, a generic, or `unknown` with a type guard.
 
 **TS-002** Exported functions and class methods must have explicit return types. Do not force consumers to infer the contract from implementation.
-
-**FN-001** Functions must not exceed 20 lines (excluding blanks and comments). Extract sub-functions.
-
-**FN-001b** Control blocks (`if`/`else`/`while`/`for`) must be one line long — always a function call, never inline logic.
-
-**FN-005** Functions must not have more than 3 parameters. Group related parameters into an object.
 
 **NM-001a** No single-letter variable names except loop counters (`i`, `j`, `k`). Use intent-revealing names.
 
@@ -52,17 +133,31 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 **NM-006** No Hungarian notation. Do not encode types into names (`strName`, `bActive`, `iCount`, `oObject`, `aList`). Names describe intent, not type.
 
+### A-WRITE-ONLY — Hook blocks on Write operations only (not Edit)
+
+These checks require full file context. On Edit operations the hook cannot verify them — you must self-enforce during edits.
+
+**FN-001** Functions must not exceed 20 lines (excluding blanks and comments). Extract sub-functions.
+
+**FN-001b** Control blocks (`if`/`else`/`while`/`for`) must be one line long — always a function call, never inline logic.
+
+**FN-005** Functions must not have more than 3 parameters. Group related parameters into an object.
+
+### A-SELF — Agent must self-enforce (no hook)
+
+These are mechanical rules but require semantic context that shell scripts cannot reliably detect. You MUST check these with the same rigor as hook-enforced rules.
+
 **OD-003a** No method chains deeper than 2 objects. `a.getB().getC().doThing()` violates the Law of Demeter. Tell the object what you need; it returns the answer directly.
 
 **FMT-003a** Variables must be declared within 5 lines of first use. Move declarations close to where they are needed.
 
-> Post-install: run `bash scripts/install-hooks.sh` to enable automatic enforcement.
+> Post-install: run `bash scripts/install-hooks.sh` to enable automatic enforcement for A-HARD and A-WRITE-ONLY rules.
 
 ---
 
 ## Functions
 
-> Details and examples: `references/functions.md`
+> **You MUST read `references/functions.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **FN-002** Each function does exactly one thing. If you can describe it with "and" or extract a non-trivially-named sub-function, split it.
 
@@ -94,7 +189,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## Naming
 
-> Details and examples: `references/naming.md`
+> **You MUST read `references/naming.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **NM-001** Names must reveal intent — why the thing exists, what it does, how it is used. If a name requires a comment to be understood, rename it.
 
@@ -112,7 +207,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## Error Handling
 
-> Details and examples: `references/error-handling.md`
+> **You MUST read `references/error-handling.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **EH-001** Algorithm and error handling must be fully independent. The happy path must read as a clean sequence of steps without error branches obscuring it. Neither concern knows about the other.
 
@@ -124,7 +219,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## Objects & Data
 
-> Details and examples: `references/objects-and-data.md`
+> **You MUST read `references/objects-and-data.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **OD-001** Classes expose behaviour, not structure. Never blindly add getters/setters for every field. If callers would break when you change the internal representation, the abstraction is wrong.
 
@@ -138,7 +233,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## Formatting
 
-> Details and examples: `references/formatting.md`
+> **You MUST read `references/formatting.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **FMT-001** Source files read like a newspaper: highest-level function at top, each function defined just below its first caller, related functions grouped together.
 
@@ -152,7 +247,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## Code Principles
 
-> Details and examples: `references/code-principles.md`
+> **You MUST read `references/code-principles.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **DP-001 — Single Responsibility** Every class, module, and service has exactly one reason to change. When a unit serves two different actors or owns two different concerns, split it. (Skip for trivial wrappers and data structs.)
 
@@ -172,7 +267,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## Components
 
-> Details and examples: `references/components.md`
+> **You MUST read `references/components.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **CS-SCOPE** Only audit code written by the project team. Third-party, generated, or vendor-scaffolded files are out of scope. Apply this filter before any other rule.
 
@@ -196,7 +291,7 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## TypeScript
 
-> Details and examples: `references/typescript.md`
+> **You MUST read `references/typescript.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
 **TS-003** Prefer union types over enums. String literal unions provide the same type safety without runtime overhead. Only use enums when justified by a requirement string unions cannot meet (e.g. bitwise flags).
 
@@ -216,37 +311,43 @@ Write compliant code the first time. Do not write violations expecting to fix la
 
 ## UI/UX
 
-> Details and examples: `references/ui-ux.md`
+> **You MUST read `references/ui-ux.md`** for full check procedures, applicability guards, and edge cases before applying these rules.
 
-**UI-001 — Color & Contrast** Meet WCAG AA contrast (4.5:1 minimum for text). Avoid pure black/white — tint neutrals toward the brand hue. No gray text on colored backgrounds. No AI purple/cyan/neon palettes without brand justification.
+### Code-Auditable (can be verified from code alone)
 
-**UI-002 — Typography** Body line-height at least 1.5. Body text containers max 75ch. Font size hierarchy at least 1.25x between steps. Body font minimum 14px. Use `clamp()` for responsive headings.
+**UI-001 — Color & Contrast** `audit: code` Meet WCAG AA contrast (4.5:1 minimum for text). Avoid pure black/white — tint neutrals toward the brand hue. No gray text on colored backgrounds. No AI purple/cyan/neon palettes without brand justification.
 
-**UI-003 — Spacing & Layout** Follow the project's spacing scale. No cards nested inside cards. Related elements within 24px. Section breaks at least 40px.
+**UI-002 — Typography** `audit: code` Body line-height at least 1.5. Body text containers max 75ch. Font size hierarchy at least 1.25x between steps. Body font minimum 14px. Use `clamp()` for responsive headings.
 
-**UI-004 — Motion & Animation** Only animate `transform` and `opacity`. Duration between 100ms–500ms. Use `ease-out` over `ease-in-out`. No bounce/elastic curves. Always provide `@media (prefers-reduced-motion)` fallback.
+**UI-003 — Spacing & Layout** `audit: code` Follow the project's spacing scale. No cards nested inside cards. Related elements within 24px. Section breaks at least 40px.
 
-**UI-005 — Interaction & Accessibility** Touch targets minimum 44x44px. Never remove focus outlines without a `:focus-visible` replacement. No skipped heading levels. Button labels must describe the action (not "OK", "Submit", "Click here"). Form inputs must have associated labels, not just placeholders.
+**UI-004 — Motion & Animation** `audit: code` Only animate `transform` and `opacity`. Duration between 100ms–500ms. Use `ease-out` over `ease-in-out`. No bounce/elastic curves. Always provide `@media (prefers-reduced-motion)` fallback.
 
-**UI-006 — Visual Anti-Patterns** No gradient text. No icon-tile-stack pattern. No center-aligned body text outside hero/CTA. No thick accent borders on cards. No decorative glow effects.
+**UI-005 — Interaction & Accessibility** `audit: code` Touch targets minimum 44x44px. Never remove focus outlines without a `:focus-visible` replacement. No skipped heading levels. Button labels must describe the action (not "OK", "Submit", "Click here"). Form inputs must have associated labels, not just placeholders.
 
-**UI-007 — Hierarchy** The most important element must be the most visually prominent. Primary action above the fold. Heading sizes must reflect their level. Secondary elements styled lighter than primary content.
+**UI-006 — Visual Anti-Patterns** `audit: code` No gradient text. No icon-tile-stack pattern. No center-aligned body text outside hero/CTA. No thick accent borders on cards. No decorative glow effects.
 
-**UI-008 — Emphasis** Every screen has exactly one focal point. When everything is emphasized, nothing is. The primary CTA must be the most prominent interactive element.
+### Visual-Inspection-Required (flag for browser verification)
 
-**UI-009 — Contrast** Interactive elements must look distinct from static elements. Active/selected states must be clearly distinct from defaults. Primary and secondary actions must be visually differentiated.
+These rules cannot be fully verified from code alone. During code review, check what you can from the code (sizes, values, structure) and flag the remainder for browser verification.
 
-**UI-010 — Balance** Visual weight distributed intentionally. No accidental lopsided layouts. Asymmetry must be clearly deliberate.
+**UI-007 — Hierarchy** `audit: visual` The most important element must be the most visually prominent. Primary action above the fold. Heading sizes must reflect their level. Secondary elements styled lighter than primary content.
 
-**UI-011 — Proportion & Scale** Element size reflects role in hierarchy. Secondary elements must not be sized close to or larger than primary content. Size variants within a component family must follow a consistent scale.
+**UI-008 — Emphasis** `audit: visual` Every screen has exactly one focal point. When everything is emphasized, nothing is. The primary CTA must be the most prominent interactive element.
 
-**UI-012 — White Space** Empty space is a design element. No edge-to-edge packing without intention. Negative space groups related elements and separates unrelated ones.
+**UI-009 — Contrast** `audit: visual` Interactive elements must look distinct from static elements. Active/selected states must be clearly distinct from defaults. Primary and secondary actions must be visually differentiated.
 
-**UI-013 — Repetition & Pattern** Same UI pattern must be implemented the same way everywhere. No second implementation of an existing pattern with different styling.
+**UI-010 — Balance** `audit: visual` Visual weight distributed intentionally. No accidental lopsided layouts. Asymmetry must be clearly deliberate.
 
-**UI-014 — Movement & Visual Flow** Layout must guide the eye toward the main action. Clear reading path from entry point to primary action. Visual flow must match content's logical order.
+**UI-011 — Proportion & Scale** `audit: visual` Element size reflects role in hierarchy. Secondary elements must not be sized close to or larger than primary content. Size variants within a component family must follow a consistent scale.
 
-**UI-015 — Unity & Harmony** All elements must feel like they belong to the same design. No orphaned styles, one-off values, or elements that look like they came from a different product.
+**UI-012 — White Space** `audit: visual` Empty space is a design element. No edge-to-edge packing without intention. Negative space groups related elements and separates unrelated ones.
+
+**UI-013 — Repetition & Pattern** `audit: visual` Same UI pattern must be implemented the same way everywhere. No second implementation of an existing pattern with different styling.
+
+**UI-014 — Movement & Visual Flow** `audit: visual` Layout must guide the eye toward the main action. Clear reading path from entry point to primary action. Visual flow must match content's logical order.
+
+**UI-015 — Unity & Harmony** `audit: visual` All elements must feel like they belong to the same design. No orphaned styles, one-off values, or elements that look like they came from a different product.
 
 ---
 

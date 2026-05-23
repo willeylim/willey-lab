@@ -32,9 +32,45 @@ fi
 IS_TS=false
 [[ "$FILE_PATH" =~ \.(ts|tsx)$ ]] && IS_TS=true
 
-# Strip comments to reduce false positives
+# Strip comments while preserving string contents
 strip_comments() {
-  sed 's|//.*||' | sed '/\/\*/,/\*\//d'
+  awk '
+    BEGIN { in_block = 0 }
+    {
+      line = ""
+      i = 1
+      len = length($0)
+      while (i <= len) {
+        c = substr($0, i, 1)
+        c2 = substr($0, i, 2)
+
+        if (in_block) {
+          if (c2 == "*/") { in_block = 0; i += 2; continue }
+          i++; continue
+        }
+
+        # Skip string literals
+        if (c == "\"" || c == "'\''" || c == "`") {
+          q = c; line = line c; i++
+          while (i <= len) {
+            ch = substr($0, i, 1)
+            line = line ch
+            if (ch == "\\" ) { i++; if (i <= len) { line = line substr($0, i, 1) }; i++; continue }
+            if (ch == q) { i++; break }
+            i++
+          }
+          continue
+        }
+
+        if (c2 == "//") break
+        if (c2 == "/*") { in_block = 1; i += 2; continue }
+
+        line = line c
+        i++
+      }
+      print line
+    }
+  '
 }
 
 STRIPPED=$(echo "$CONTENT" | strip_comments)
@@ -126,30 +162,28 @@ check_single_letter_names() {
 check_param_count() {
   [[ "$IS_FULL_FILE" != true ]] && return
 
-  echo "$CONTENT" | awk '
+  while IFS= read -r line; do
+    VIOLATIONS="${VIOLATIONS}${line}\n"
+  done < <(echo "$CONTENT" | awk '
     /function\s+\w+\s*\(/ || /^\s*(export\s+)?(async\s+)?function\s/ || /\w+\s*[:=]\s*(async\s+)?\(/ {
       line = $0
       lineno = NR
 
-      # Find the opening paren
       paren_start = index(line, "(")
       if (paren_start == 0) next
 
-      # Collect everything between parens (handle multi-line)
       depth = 0
       params = ""
       started = 0
       for (i = paren_start; i <= length(line); i++) {
         c = substr(line, i, 1)
-        if (c == "(") { depth++; started = 1; next }
+        if (c == "(") { depth++; started = 1; continue }
         if (c == ")") { depth--; if (depth == 0) break }
         if (started && depth > 0) params = params c
       }
 
-      # Empty params
       if (params == "" || params ~ /^\s*$/) next
 
-      # Count params: split by comma at depth 0
       count = 1
       d = 0
       for (i = 1; i <= length(params); i++) {
@@ -160,7 +194,6 @@ check_param_count() {
       }
 
       if (count > 3) {
-        # Extract function name
         name = line
         gsub(/^\s*(export\s+)?(default\s+)?(async\s+)?/, "", name)
         gsub(/function\s+/, "", name)
@@ -168,9 +201,7 @@ check_param_count() {
         printf "FN-005:%d: Function '\''%s'\'' has %d parameters (max 3). Group into an object.\n", lineno, name, count
       }
     }
-  ' | while IFS= read -r line; do
-    VIOLATIONS="${VIOLATIONS}${line}\n"
-  done
+  ')
 }
 
 # -----------------------------------------------------------------------------
@@ -179,7 +210,9 @@ check_param_count() {
 check_fn_size() {
   [[ "$IS_FULL_FILE" != true ]] && return
 
-  echo "$CONTENT" | awk '
+  while IFS= read -r line; do
+    VIOLATIONS="${VIOLATIONS}${line}\n"
+  done < <(echo "$CONTENT" | awk '
     /^\s*(export\s+)?(default\s+)?(async\s+)?function\s+\w+/ ||
     /^\s*(public|private|protected|static|async)\s+(async\s+)?\w+\s*\(/ {
       if (fn_name != "" && fn_lines > 20) {
@@ -221,13 +254,11 @@ check_fn_size() {
         fn_lines = 0
       }
     }
-  ' | while IFS= read -r line; do
-    VIOLATIONS="${VIOLATIONS}${line}\n"
-  done
+  ')
 }
 
 # -----------------------------------------------------------------------------
-# CHECK: NM-005a — No magic numbers (WARN ONLY)
+# CHECK: NM-005a — No magic numbers
 # -----------------------------------------------------------------------------
 check_magic_numbers() {
   local matches
@@ -242,18 +273,20 @@ check_magic_numbers() {
   if [[ -n "$matches" ]]; then
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
-      WARNINGS="${WARNINGS}NM-005a: Possible magic number. Consider naming it as a constant. Near: ${line}\n"
+      VIOLATIONS="${VIOLATIONS}NM-005a: Magic number found. Assign to a named constant. Near: ${line}\n"
     done <<< "$matches"
   fi
 }
 
 # -----------------------------------------------------------------------------
-# CHECK: FN-001b — Control blocks must be one line (WARN ONLY)
+# CHECK: FN-001b — Control blocks must be one line
 # -----------------------------------------------------------------------------
 check_block_body() {
   [[ "$IS_FULL_FILE" != true ]] && return
 
-  echo "$CONTENT" | awk '
+  while IFS= read -r line; do
+    VIOLATIONS="${VIOLATIONS}${line}\n"
+  done < <(echo "$CONTENT" | awk '
     /^\s*(if|else if|else|while|for)\s*(\(|{)/ {
       ctrl_line = NR
       ctrl_depth = 0
@@ -284,9 +317,7 @@ check_block_body() {
         body_lines = 0
       }
     }
-  ' | while IFS= read -r line; do
-    WARNINGS="${WARNINGS}${line}\n"
-  done
+  ')
 }
 
 # -----------------------------------------------------------------------------
