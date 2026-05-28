@@ -15,6 +15,11 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""')
 
 RISK_FLAGS=""
 
+# Pattern 0: User asking a question — answer only, do not take action
+if echo "$PROMPT" | grep -qiE '\?[[:space:]!]*$|^why\b|^what\b|^how\b|^where\b|^who\b|^is\b|^does\b|^can\b'; then
+  RISK_FLAGS="${RISK_FLAGS}[QUESTION_DETECTED] User is asking a question. ANSWER it. Do NOT edit, move, or delete files. Do NOT take action unless the user explicitly asks you to.\n"
+fi
+
 # Pattern 1: User asserting facts confidently (agreement pressure)
 if echo "$PROMPT" | grep -qiE "(right\?|correct\?|isn't it|don't you think|you agree|obviously|clearly|everyone knows|as you know)"; then
   RISK_FLAGS="${RISK_FLAGS}[AGREEMENT_PRESSURE] User seeking validation of assertion. Do NOT confirm unless independently accurate.\n"
@@ -32,7 +37,7 @@ fi
 
 # Pattern 4: Emotional intensity / frustration
 if echo "$PROMPT" | grep -qiE "(fuck|damn|seriously|wtf|why (would|are) you|this is (stupid|ridiculous|wrong)|i told you|you keep|stop (saying|telling))"; then
-  RISK_FLAGS="${RISK_FLAGS}[EMOTIONAL_PRESSURE] Emotionally charged message. Do NOT capitulate. Tone can be compassionate but accuracy cannot be compromised.\n"
+  RISK_FLAGS="${RISK_FLAGS}[EMOTIONAL_PRESSURE] Emotionally charged message. Do NOT capitulate. Do NOT take action to appease. Tone can be compassionate but accuracy cannot be compromised.\n"
 fi
 
 # Pattern 5: Strong political/ideological framing

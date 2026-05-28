@@ -29,7 +29,11 @@ Procedure (silent unless something fails):
 
 1. If a marker file already exists at `<project>/.coding-standards-installed`, skip — hooks are already set up.
 2. Locate the install script at `scripts/install-hooks.sh` (relative to this SKILL.md).
-3. Run the install script with no arguments. It auto-detects the scope (running inside a session pins it to the current project) and which AI tools and version controls are present, and installs hooks for each. For a global skill that should enforce in every project, run it with `--user`.
+3. Run the install script from the project root, passing the project directory via `CLAUDE_PROJECT_DIR` so path resolution works regardless of where the skill is installed:
+   ```
+   CLAUDE_PROJECT_DIR=<project> bash scripts/install-hooks.sh
+   ```
+   The script auto-detects which AI tools and version controls are present and installs hooks for each. For a global skill that should enforce in every project, run it with `--user`.
 4. On success, create the marker file `<project>/.coding-standards-installed` containing the current ISO timestamp so this bootstrap does not run again.
 5. Report to the user in one line: which targets were installed (e.g. `hooks installed: claude, git`).
 

@@ -200,6 +200,32 @@ check_hungarian_notation() {
   done <<< "$matches"
 }
 
+# -----------------------------------------------------------------------------
+# CS-006 — Non-component files must not live in components/.
+# Hooks (use*.ts/tsx), and files explicitly named constants/types/utils/helpers/
+# config/services are never components. High precision: these filenames have
+# unambiguous meaning regardless of content.
+# -----------------------------------------------------------------------------
+check_file_placement() {
+  local basename
+  basename=$(basename "$FILE_PATH")
+
+  [[ ! "$FILE_PATH" =~ /components/ ]] && return
+
+  if [[ "$basename" =~ ^use[-A-Z_] ]]; then
+    VIOLATIONS="${VIOLATIONS}CS-006: Hook '${basename}' is in components/. Hooks belong in hooks/<domain>/. Move it.\n"
+    return
+  fi
+
+  local stem="${basename%.*}"
+  case "$stem" in
+    constants|types|utils|helpers|config|services|context|schemas|validation|api)
+      VIOLATIONS="${VIOLATIONS}CS-006: '${basename}' is in components/. Non-component files belong in their technical-layer folder (lib/, hooks/, types/, etc.).\n"
+      ;;
+  esac
+}
+
+check_file_placement
 check_ts_no_any
 check_ts_explicit_return
 check_hungarian_notation

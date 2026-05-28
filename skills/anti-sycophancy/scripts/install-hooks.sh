@@ -20,7 +20,8 @@
 
 set -euo pipefail
 
-SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ORIG_DIR="$(pwd)"
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "install-hooks.sh: 'jq' is required but not installed." >&2
@@ -35,6 +36,9 @@ resolve_project_dir() {
     */.factory/skills/*) printf '%s' "${SKILL_DIR%%/.factory/skills/*}"; return ;;
   esac
   local root
+  root="$(git -C "$ORIG_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$root" ]; then printf '%s' "$root"; return; fi
+  if [ "$ORIG_DIR" != "$HOME" ]; then printf '%s' "$ORIG_DIR"; return; fi
   root="$(git -C "$SKILL_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$root" ]; then printf '%s' "$root"; return; fi
   (cd "$SKILL_DIR/../.." && pwd)
@@ -116,3 +120,5 @@ else
 fi
 echo ""
 echo "Verify with: claude /hooks"
+
+exit 0

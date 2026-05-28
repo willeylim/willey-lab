@@ -32,7 +32,8 @@
 
 set -euo pipefail
 
-SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ORIG_DIR="$(pwd)"
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
 
 # Resolve the project root robustly, regardless of where the skill is installed
 # (repo-root skills/, .claude/skills/, .factory/skills/) and whether an agent
@@ -45,7 +46,12 @@ resolve_project_dir() {
     */.claude/skills/*)  printf '%s' "${SKILL_DIR%%/.claude/skills/*}";  return ;;
     */.factory/skills/*) printf '%s' "${SKILL_DIR%%/.factory/skills/*}"; return ;;
   esac
+  # Caller's working dir — agent sessions run from the project root
   local root
+  root="$(git -C "$ORIG_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$root" ]; then printf '%s' "$root"; return; fi
+  if [ "$ORIG_DIR" != "$HOME" ]; then printf '%s' "$ORIG_DIR"; return; fi
+  # Last resort: climb from skill dir
   root="$(git -C "$SKILL_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$root" ]; then printf '%s' "$root"; return; fi
   (cd "$SKILL_DIR/../.." && pwd)
@@ -121,9 +127,14 @@ if [[ "$AUTO" -eq 1 ]]; then
     [[ -f "$BASE/.aider.conf.yml" ]] && WANT_AIDER=1
     [[ -d "$BASE/.git" ]]            && WANT_GIT=1
     if [[ $WANT_CLAUDE -eq 0 && $WANT_DROID -eq 0 && $WANT_AIDER -eq 0 && $WANT_GIT -eq 0 ]]; then
-      echo "install-hooks.sh: no supported tool configs detected in $BASE." >&2
-      echo "Re-run with --claude / --droid / --aider / --git / --all (add --user for a global install)." >&2
-      exit 1
+      if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+        WANT_CLAUDE=1
+      elif [[ -n "${FACTORY_PROJECT_DIR:-}" ]]; then
+        WANT_DROID=1
+      else
+        echo "  No tool configs detected in $BASE — defaulting to Claude Code hooks." >&2
+        WANT_CLAUDE=1
+      fi
     fi
   fi
 fi
@@ -354,3 +365,5 @@ echo "Verify:"
 [[ $WANT_DROID  -eq 1 ]] && echo "  Droid:   droid /hooks"
 [[ $WANT_AIDER  -eq 1 ]] && echo "  Aider:   inspect $([ "$SCOPE" = user ] && echo "$HOME/.aider.conf.yml" || echo ".aider.conf.yml")"
 [[ $WANT_GIT    -eq 1 ]] && echo "  Git:     git commit (stage a violating file to test)"
+
+exit 0
