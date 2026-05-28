@@ -15,18 +15,25 @@ if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   exit 0
 fi
 
-# Get the last assistant message from transcript
-LAST_RESPONSE=$(tail -200 "$TRANSCRIPT_PATH" | \
-  jq -r 'select(.role == "assistant") | .content' 2>/dev/null | \
-  tail -1)
+# Extract the text of the most recent assistant message.
+# Claude Code transcripts are JSONL: one record per line, discriminated by a
+# top-level `.type`, with the payload under `.message.content` (an array of
+# blocks). There is no top-level `.role`/`.content`. Parse each line
+# independently so one malformed line cannot abort the whole read, and bound
+# the scan to the tail (the last response is always near the end).
+LAST_RESPONSE=$(
+  tail -n 300 "$TRANSCRIPT_PATH" 2>/dev/null | while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    printf '%s\n' "$line" | jq -rc '
+      select(.type? == "assistant")
+      | [ (.message.content // [])[]? | select(.type? == "text") | .text ]
+      | join(" ")
+    ' 2>/dev/null
+  done | grep -v '^[[:space:]]*$' | tail -n 1 || true
+)
 
 if [ -z "$LAST_RESPONSE" ]; then
   exit 0
-fi
-
-# Extract text content if it's a content array
-if echo "$LAST_RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
-  LAST_RESPONSE=$(echo "$LAST_RESPONSE" | jq -r '[.[] | select(.type == "text") | .text] | join(" ")')
 fi
 
 VIOLATIONS=""

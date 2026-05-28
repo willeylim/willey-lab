@@ -1,32 +1,35 @@
 ---
 name: coding-standards
 description: >
-  Mandatory coding standards enforced on every code write. Covers functions, naming,
-  components, TypeScript, error handling, formatting, objects/data structures, code
-  principles (SOLID/KISS/DRY), and UI/UX. This skill MUST be consulted before writing,
-  editing, or reviewing any code.
+  Coding standards for writing, editing, and reviewing code — functions, naming,
+  components, TypeScript, error handling, formatting, objects/data, code principles
+  (SOLID/KISS/DRY), and UI/UX. Consult before any code change. A PreToolUse hook
+  hard-blocks a high-precision subset (no `any`, explicit return types, no Hungarian
+  notation); the remaining rules are applied by the agent. Use for requests like
+  "write a component", "refactor this", "review this diff/PR", or "is this clean?".
 license: MIT
 metadata:
   author: willey-lab
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Coding Standards
 
 Every line of code you write or edit must comply with these rules. No exceptions.
 
+## Skill Location
+
+All paths in this document are **relative to this SKILL.md file**. For example, `references/functions.md` means the `references/` subdirectory next to this file. This works regardless of whether the skill is installed at project-level or user-level — the agent resolves paths from where it loaded this file.
+
 ## Bootstrap (run once per project)
 
-The very first time this skill is loaded in a project, you MUST ensure enforcement hooks are installed. This is non-negotiable — the skill is only effective when the hooks are active.
+The very first time this skill is loaded in a project, install the enforcement hooks. Most rules are applied by you (the agent) whether or not the hooks are present; the hooks add an automatic hard gate for the A-HARD rules so they can't slip through. Install them.
 
 Procedure (silent unless something fails):
 
-1. Locate the install script. Prefer this order:
-   - `<project>/.claude/skills/coding-standards/scripts/install-hooks.sh`
-   - `<project>/.factory/skills/coding-standards/scripts/install-hooks.sh`
-   - `<project>/skills/coding-standards/scripts/install-hooks.sh`
-2. If a marker file already exists at `<project>/.coding-standards-installed`, skip — hooks are already set up.
-3. Otherwise, run the install script with no arguments. It auto-detects which AI tools and version controls are present and installs hooks for each.
+1. If a marker file already exists at `<project>/.coding-standards-installed`, skip — hooks are already set up.
+2. Locate the install script at `scripts/install-hooks.sh` (relative to this SKILL.md).
+3. Run the install script with no arguments. It auto-detects the scope (running inside a session pins it to the current project) and which AI tools and version controls are present, and installs hooks for each. For a global skill that should enforce in every project, run it with `--user`.
 4. On success, create the marker file `<project>/.coding-standards-installed` containing the current ISO timestamp so this bootstrap does not run again.
 5. Report to the user in one line: which targets were installed (e.g. `hooks installed: claude, git`).
 
@@ -34,15 +37,18 @@ If the install script is missing or fails, surface the error to the user but con
 
 ## Layer Routing
 
-Determine which sections apply based on the file you are editing:
+First apply **CS-SCOPE** (see Components) as a gating filter: vendor, generated, and third-party files — e.g. `components/ui/**` scaffolded by shadcn, or anything under `vendor/`, `node_modules/`, `generated/` — are excluded from **all** rules. CS-SCOPE wins over the routing below. Only then route the remaining files:
 
 | Layer | File Patterns | Sections to Follow |
 |---|---|---|
-| **backend** | `*.service.ts`, `*.controller.ts`, `*.module.ts`, `*.guard.ts`, `*.pipe.ts`, `*.decorator.ts`, `*.go`, `*.rs`, `*.php`, `*.py` | Section A + Functions + Naming + Error Handling + Objects & Data + Formatting + Code Principles |
-| **frontend** | `components/**/*.ts(x)`, `hooks/**`, `use*.ts(x)`, `utils/**`, `lib/**`, `types/**` | All backend sections + Components + TypeScript |
-| **ui** | `*.css`, `*.scss`, `*.module.css`, `components/ui/**`, `*.tsx`, `*.vue`, `*.svelte` | UI/UX |
+| **backend** | `*.service.ts`, `*.controller.ts`, `*.module.ts`, `*.guard.ts`, `*.pipe.ts`, `*.decorator.ts`, `*.go`, `*.rs`, `*.php`, `*.py` | Functions + Naming + Error Handling + Objects & Data + Formatting + Code Principles |
+| **frontend** | every `*.ts` / `*.tsx` / `*.js` / `*.jsx` | All backend sections + Components + TypeScript |
+| **ui** | `*.css`, `*.scss`, `*.module.css`, `*.tsx`, `*.jsx`, `*.vue`, `*.svelte` | UI/UX |
 
-A `.tsx` file matches both frontend and ui — follow both.
+- **Section A** (mechanical rules) applies to all code files regardless of layer — the hook enforces it by file extension, not folder.
+- **TypeScript rules (TS-*)** apply to **every** `.ts`/`.tsx` file. This matches the PreToolUse hook, which checks all TypeScript regardless of folder.
+- A `.tsx` file matches frontend **and** ui — follow both.
+- **Component rules (CS-*)** carry their own applicability guards (e.g. CS-008 skips backend code), so they are safe to consider on any frontend file.
 
 Full routing config: `references/layer-standards.json`
 
@@ -75,7 +81,7 @@ List all files in the diff. For each file, determine its layer using the Layer R
 Apply CS-SCOPE first. List any excluded files and why. Remaining files proceed to review.
 
 ### Step 3 — Load References
-For each applicable layer, you MUST read the full reference file from `references/`. The summaries in this document are abbreviated — the reference files contain the full check procedure, applicability guards, and edge cases required to apply each rule correctly. Do NOT rely solely on the summaries below.
+For each applicable layer, you MUST read the full reference file from `references/` (relative to this SKILL.md). The summaries in this document are abbreviated — the reference files contain the full check procedure, applicability guards, and edge cases required to apply each rule correctly. Do NOT rely solely on the summaries below.
 
 ### Step 4 — Systematic Check
 For each applicable rule, in rule-ID order:
@@ -115,60 +121,58 @@ Write your review output to a file using the Write tool. Use the path `.coding-s
 Rules checked: n/N applicable
 ```
 
-### Step 6 — Validation
+### Step 6 — Coverage Check
 
-After writing the review file, a PostToolUse hook automatically validates that every applicable rule is covered. If the hook reports missing rules, add findings for those rules and re-write the file.
+After writing the review file, a PostToolUse hook runs a **coverage gate** (`validate-review.sh`): it verifies that every applicable rule ID appears in the review and that each MAJOR/MINOR finding carries a `file:line` citation. It does **not** verify that your findings are correct — a rubber-stamped "PASS" for every rule would pass this gate. Correctness is your responsibility. If the gate reports missing rules, add findings for them and re-write the file.
 
-If hooks are not installed, run the validation manually:
+If hooks are not installed, run the gate manually:
 ```bash
 bash scripts/validate-review.sh .coding-standards-review.md
 ```
 
 ### Step 7 — Completion
 A review is complete only when:
-1. Every applicable rule has been reported as PASS, MAJOR, MINOR, or SKIPPED.
-2. The validation script exits 0 (PASS).
+1. Every applicable rule has been **genuinely evaluated** and reported as PASS, MAJOR, MINOR, or SKIPPED — not rubber-stamped. The coverage gate cannot detect a fabricated PASS; your integrity must.
+2. The coverage gate exits 0.
 3. All MAJOR/MINOR findings include a `file:line` citation.
 
-If you have not reported on a rule, you have not finished the review.
+If you have not genuinely evaluated a rule, you have not finished the review.
 
 ---
 
 ## Section A — Mechanical Rules
 
-These rules have deterministic right/wrong answers. Some are enforced by hook scripts, some require agent self-enforcement because they need context a shell script cannot detect.
+These rules have deterministic right/wrong answers. A small, high-precision subset is enforced by a hook that blocks the write. The rest are self-enforced by you — detecting them reliably needs scope and structural understanding a shell script cannot provide on real TypeScript/JSX, and a hook that tried would block idiomatic code while missing real violations. "Not hooked" does **not** mean "optional."
 
-### A-HARD — Hook blocks the write on every Write and Edit
+### A-HARD — Hook blocks the write (Write / Create / Edit / ApplyPatch)
 
-**TS-001** No `any` type. Every `: any`, `as any`, or `<any>` is blocked. Use a specific type, a generic, or `unknown` with a type guard.
+The PreToolUse hook (`scripts/coding-standards-check.sh`) hard-blocks these. Matching runs on comment-and-string-stripped code, so text inside strings or comments never false-positives.
 
-**TS-002** Exported functions and class methods must have explicit return types. Do not force consumers to infer the contract from implementation.
+**TS-001** No `any` type. `any` in any type position — `: any`, `as any`, `<any>`, `any[]`, `Array<any>`, `Record<string, any>`, `x | any` — is blocked. Use a specific type, a generic, or `unknown` with a type guard.
 
-**NM-001a** No single-letter variable names except loop counters (`i`, `j`, `k`). Use intent-revealing names.
+**TS-002** Exported functions, exported arrow consts, and `public`/`private`/`protected` class methods must have explicit return types. (The hook covers those forms; you self-enforce object-literal methods, modifier-less methods, and multi-line signatures.)
 
-**NM-005a** No magic numbers. Raw numeric values (other than 0 and 1) must be named constants that reveal what the number represents.
-
-**NM-006** No Hungarian notation. Do not encode types into names (`strName`, `bActive`, `iCount`, `oObject`, `aList`). Names describe intent, not type.
-
-### A-WRITE-ONLY — Hook blocks on Write operations only (not Edit)
-
-These checks require full file context. On Edit operations the hook cannot verify them — you must self-enforce during edits.
-
-**FN-001** Functions must not exceed 20 lines (excluding blanks and comments). Extract sub-functions.
-
-**FN-001b** Control blocks (`if`/`else`/`while`/`for`) must be one line long — always a function call, never inline logic.
-
-**FN-005** Functions must not have more than 3 parameters. Group related parameters into an object.
+**NM-006** No Hungarian notation. Do not encode types into names (`strName`, `bIsActive`, `iCount`, `oObj`, `aList`). Names describe intent, not type.
 
 ### A-SELF — Agent must self-enforce (no hook)
 
-These are mechanical rules but require semantic context that shell scripts cannot reliably detect. You MUST check these with the same rigor as hook-enforced rules.
+Mechanical in spirit, but NOT hook-blocked: reliably detecting them needs scope, semantic, or structural context a shell script cannot provide. You MUST check these with the same rigor as the hook-enforced rules, on every write and review.
+
+**NM-001a** No single-letter variable names except loop counters (`i`, `j`, `k`) or obvious short-scope locals. Use intent-revealing names. *(Not hooked: a regex hook blocks idioms like `const t = useTranslations()`.)*
+
+**NM-005a** No magic numbers. Raw numeric values — other than 0/1, array indices, and framework/style tokens (e.g. Tailwind class numbers) — must be named constants. *(Not hooked: indistinguishable from legitimate literals without a parser.)*
+
+**FN-001** Functions must not exceed 20 lines (excluding blanks and comments). Extract sub-functions. *(Not hooked: brace counting desyncs on JSX, generics, and braces in strings.)*
+
+**FN-001b** Control blocks (`if`/`else`/`while`/`for`) must be one line long — always a function call, never inline logic.
+
+**FN-005** Functions must not have more than 3 parameters. Group related parameters into an object. *(Not hooked: arrow-const and object-method forms are missed by line-based detection.)*
 
 **OD-003a** No method chains deeper than 2 objects. `a.getB().getC().doThing()` violates the Law of Demeter. Tell the object what you need; it returns the answer directly.
 
 **FMT-003a** Variables must be declared within 5 lines of first use. Move declarations close to where they are needed.
 
-> Post-install: run `bash scripts/install-hooks.sh` to enable automatic enforcement for A-HARD and A-WRITE-ONLY rules.
+> Post-install: run `bash scripts/install-hooks.sh` (relative to this SKILL.md) to enable the A-HARD hook. The A-SELF rules have no hook by design — they rely on you.
 
 ---
 
@@ -230,7 +234,7 @@ These are mechanical rules but require semantic context that shell scripts canno
 
 **EH-002** Catch blocks must translate exceptions into meaningful domain exceptions. Never let raw implementation exceptions leak through. Never swallow exceptions silently.
 
-**EH-003** Define the try/catch contract before writing the logic. Each try block wraps one coherent operation with one clear failure mode. Every failure path must have a corresponding test.
+**EH-003** Define the try/catch contract before writing the logic. Each try block wraps one coherent operation with one clear failure mode. When test files are in scope, every failure path needs a covering test; if no tests are in scope, flag it for verification rather than reporting a violation.
 
 ---
 
@@ -340,7 +344,7 @@ These are mechanical rules but require semantic context that shell scripts canno
 
 **UI-004 — Motion & Animation** `audit: code` Only animate `transform` and `opacity`. Duration between 100ms–500ms. Use `ease-out` over `ease-in-out`. No bounce/elastic curves. Always provide `@media (prefers-reduced-motion)` fallback.
 
-**UI-005 — Interaction & Accessibility** `audit: code` Touch targets minimum 44x44px. Never remove focus outlines without a `:focus-visible` replacement. No skipped heading levels. Button labels must describe the action (not "OK", "Submit", "Click here"). Form inputs must have associated labels, not just placeholders.
+**UI-005 — Interaction & Accessibility** `audit: code` Touch targets at least 24×24px (WCAG 2.2 AA, SC 2.5.8); 44×44px recommended (AAA SC 2.5.5 / Apple HIG). Never remove focus outlines without a `:focus-visible` replacement. No skipped heading levels. Button labels must describe the action (not "OK", "Submit", "Click here"). Form inputs must have associated labels, not just placeholders.
 
 **UI-006 — Visual Anti-Patterns** `audit: code` No gradient text. No icon-tile-stack pattern. No center-aligned body text outside hero/CTA. No thick accent borders on cards. No decorative glow effects.
 
@@ -370,6 +374,7 @@ These rules cannot be fully verified from code alone. During code review, check 
 
 ## Conflict Resolution
 
-- Section A rules (hook-enforced) are absolute — no judgment calls.
+- A-HARD rules (hook-enforced) are absolute — no judgment calls.
+- A-SELF rules are mechanical and near-absolute, but applied with scope awareness (e.g. a single-letter loop index or an array index `0`/`1` is fine).
 - For Section B rules, KISS (DP-006) is the tiebreaker: choose the simpler design.
-- CS-SCOPE: never flag third-party, generated, or vendor code.
+- CS-SCOPE: never flag third-party, generated, or vendor code — it gates before every other rule.

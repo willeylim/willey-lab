@@ -1,8 +1,21 @@
 #!/bin/bash
 # =============================================================================
 # Coding Standards PreToolUse Hook
-# Fires on file-writing tool calls — blocks code that violates mechanical rules.
-# Supports both Claude Code (Write/Edit) and Factory Droid (Create/Edit) tool names.
+# Fires on file-writing tool calls — blocks code that violates the rules a shell
+# script can detect with HIGH PRECISION (near-zero false positives).
+#
+# Hard-blocked (exit 2):
+#   TS-001  no `any` type             (TypeScript files)
+#   TS-002  explicit return types     (exported fns / arrows / public methods)
+#   NM-006  no Hungarian notation
+#
+# Deliberately NOT hard-blocked here: single-letter names, magic numbers,
+# function length, control-block bodies, and parameter count. Those require
+# scope/structural understanding that regex + line-based awk cannot do
+# reliably on real React/TS/JSX code (they block idiomatic code and miss real
+# violations). They are agent-self-enforced instead — see the skill references.
+#
+# Supports Claude Code (Write/Edit) and Factory Droid (Create/Edit/ApplyPatch).
 # =============================================================================
 
 set -euo pipefail
@@ -12,60 +25,90 @@ INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""')
 
 case "$TOOL_NAME" in
-  Write|Create|Edit) ;;
+  Write|Create|Edit|ApplyPatch) ;;
   *) exit 0 ;;
 esac
 
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
+# Extract the file path and the new code introduced by this tool call.
+case "$TOOL_NAME" in
+  Write|Create)
+    FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""')
+    CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // ""')
+    ;;
+  Edit)
+    FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""')
+    CONTENT=$(echo "$INPUT" | jq -r '.tool_input.new_string // ""')
+    ;;
+  ApplyPatch)
+    # Factory patches carry a diff rather than file content; field naming
+    # varies, so probe the common shapes and keep only the added (`+`) lines.
+    # The target path may live in a field or only in the patch header.
+    PATCH=$(echo "$INPUT" | jq -r '.tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // ""')
+    FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""')
+    if [[ -z "$FILE_PATH" ]]; then
+      FILE_PATH=$(printf '%s\n' "$PATCH" | sed -nE 's/^\*\*\* (Update|Add|Move) File: (.*)$/\2/p' | head -1)
+    fi
+    if [[ -z "$FILE_PATH" ]]; then
+      FILE_PATH=$(printf '%s\n' "$PATCH" | sed -nE 's#^\+\+\+ b?/?(.*)$#\1#p' | head -1)
+    fi
+    CONTENT=$(printf '%s\n' "$PATCH" | grep -E '^\+' | grep -vE '^\+\+\+' | sed 's/^+//' || true)
+    ;;
+esac
 
-# Only check code files
+# Only check code files.
 [[ ! "$FILE_PATH" =~ \.(ts|tsx|js|jsx|py|go|rs|php|vue|svelte)$ ]] && exit 0
-
-if [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Create" ]]; then
-  CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // ""')
-  IS_FULL_FILE=true
-else
-  CONTENT=$(echo "$INPUT" | jq -r '.tool_input.new_string // ""')
-  IS_FULL_FILE=false
-fi
 
 [[ -z "$CONTENT" ]] && exit 0
 
 IS_TS=false
 [[ "$FILE_PATH" =~ \.(ts|tsx)$ ]] && IS_TS=true
 
-# Strip comments while preserving string contents
-strip_comments() {
+# -----------------------------------------------------------------------------
+# strip_code — remove comments and blank the *contents* of string and template
+# literals, preserving the delimiters and surrounding token structure. Every
+# check below runs on this so that string/comment text cannot produce false
+# positives (e.g. the word "any" inside a string, or `: any` in a comment).
+# Tracks multi-line block comments and multi-line template literals.
+# Known limitation: regex literals (/.../ ) are not modeled (rare; a regex
+# whose body looks like a type token could slip through) — documented, not
+# blocking, consistent with this hook's "precision over recall" stance.
+# -----------------------------------------------------------------------------
+strip_code() {
   awk '
-    BEGIN { in_block = 0 }
+    BEGIN { in_block = 0; in_tmpl = 0 }
     {
       line = ""
       i = 1
       len = length($0)
       while (i <= len) {
-        c = substr($0, i, 1)
+        c  = substr($0, i, 1)
         c2 = substr($0, i, 2)
 
         if (in_block) {
           if (c2 == "*/") { in_block = 0; i += 2; continue }
           i++; continue
         }
+        if (in_tmpl) {
+          if (c == "\\") { i += 2; continue }
+          if (c == "`")  { line = line "`"; in_tmpl = 0; i++; continue }
+          i++; continue
+        }
 
-        # Skip string literals
-        if (c == "\"" || c == "'\''" || c == "`") {
+        if (c2 == "//") break
+        if (c2 == "/*") { in_block = 1; i += 2; continue }
+
+        if (c == "\"" || c == "'\''") {
           q = c; line = line c; i++
           while (i <= len) {
             ch = substr($0, i, 1)
-            line = line ch
-            if (ch == "\\" ) { i++; if (i <= len) { line = line substr($0, i, 1) }; i++; continue }
-            if (ch == q) { i++; break }
+            if (ch == "\\") { i += 2; continue }
+            if (ch == q)    { line = line q; i++; break }
             i++
           }
           continue
         }
 
-        if (c2 == "//") break
-        if (c2 == "/*") { in_block = 1; i += 2; continue }
+        if (c == "`") { line = line "`"; in_tmpl = 1; i++; continue }
 
         line = line c
         i++
@@ -75,283 +118,97 @@ strip_comments() {
   '
 }
 
-STRIPPED=$(echo "$CONTENT" | strip_comments)
+STRIPPED=$(echo "$CONTENT" | strip_code)
 
 VIOLATIONS=""
-WARNINGS=""
 
 # -----------------------------------------------------------------------------
-# CHECK: TS-001 — No `any` type
+# TS-001 — No `any` type.
+# Flags `any` only in type positions: after `:`/`as`/`<`/`,`/`|`/`&`, or before
+# `[]`/`>`/`,`/`|`/`&`. This catches `: any`, `as any`, `Array<any>`,
+# `Record<string, any>`, `Map<K, any>`, `any[]`, `x | any`, etc. while leaving
+# identifiers/properties (`company`, `arr.any()`) and regex bodies alone.
 # -----------------------------------------------------------------------------
 check_ts_no_any() {
   [[ "$IS_TS" != true ]] && return
-
   local matches
-  matches=$(echo "$STRIPPED" | grep -nE ':\s*any\b|as\s+any\b|<any>' || true)
-  if [[ -n "$matches" ]]; then
-    while IFS= read -r line; do
-      VIOLATIONS="${VIOLATIONS}TS-001: Type 'any' found. Use a specific type, generic, or 'unknown'. Near: ${line}\n"
-    done <<< "$matches"
-  fi
+  matches=$(echo "$STRIPPED" | grep -nE '(:|<|,|\||&)[[:space:]]*\bany\b|\bas[[:space:]]+any\b|\bany[[:space:]]*(\[\]|>|,|\||&)' || true)
+  [[ -z "$matches" ]] && return
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    VIOLATIONS="${VIOLATIONS}TS-001: Type 'any' found. Use a specific type, a generic, or 'unknown' with a type guard. Near: ${line}\n"
+  done <<< "$matches"
 }
 
 # -----------------------------------------------------------------------------
-# CHECK: TS-002 — Explicit return types on exported functions
+# TS-002 — Explicit return types on exported functions, exported arrow
+# functions, and public/private/protected class methods. A declaration is
+# missing its return type when `)` is directly followed by `{` (no `): Type`).
+# Conservative by design: prefers false negatives over false positives.
 # -----------------------------------------------------------------------------
 check_ts_explicit_return() {
   [[ "$IS_TS" != true ]] && return
 
-  local matches
-  matches=$(echo "$STRIPPED" | grep -nE '^export\s+(async\s+)?function\s+\w+\s*\([^)]*\)\s*\{' || true)
-  if [[ -n "$matches" ]]; then
+  # Exported function declarations.
+  local fn_matches
+  fn_matches=$(echo "$STRIPPED" | grep -nE '^[[:space:]]*export[[:space:]]+(default[[:space:]]+)?(async[[:space:]]+)?function\b' || true)
+  if [[ -n "$fn_matches" ]]; then
     while IFS= read -r line; do
-      VIOLATIONS="${VIOLATIONS}TS-002: Exported function lacks explicit return type. Near: ${line}\n"
-    done <<< "$matches"
+      [[ -z "$line" ]] && continue
+      echo "$line" | grep -qE '\)[[:space:]]*:' && continue
+      echo "$line" | grep -qE '\)[[:space:]]*\{' || continue
+      VIOLATIONS="${VIOLATIONS}TS-002: Exported function lacks an explicit return type. Near: ${line}\n"
+    done <<< "$fn_matches"
   fi
 
+  # Exported arrow-function consts.
   local arrow_matches
-  arrow_matches=$(echo "$STRIPPED" | grep -nE '^export\s+const\s+\w+\s*=\s*(async\s+)?\([^)]*\)\s*=>' || true)
+  arrow_matches=$(echo "$STRIPPED" | grep -nE '^[[:space:]]*export[[:space:]]+const[[:space:]]+[A-Za-z0-9_$]+[[:space:]]*=[[:space:]]*(async[[:space:]]+)?\([^)]*\)[[:space:]]*=>' || true)
   if [[ -n "$arrow_matches" ]]; then
     while IFS= read -r line; do
-      if ! echo "$line" | grep -qE '\)\s*:\s*\w' ; then
-        VIOLATIONS="${VIOLATIONS}TS-002: Exported arrow function lacks explicit return type. Near: ${line}\n"
-      fi
+      [[ -z "$line" ]] && continue
+      echo "$line" | grep -qE '\)[[:space:]]*:[[:space:]]*\S' && continue
+      VIOLATIONS="${VIOLATIONS}TS-002: Exported arrow function lacks an explicit return type. Near: ${line}\n"
     done <<< "$arrow_matches"
+  fi
+
+  # Access-modifier class methods (public/private/protected). Excludes
+  # constructors and setters, which legitimately have no return type.
+  local method_matches
+  method_matches=$(echo "$STRIPPED" | grep -nE '^[[:space:]]*(public|private|protected)[[:space:]]+(async[[:space:]]+|static[[:space:]]+|readonly[[:space:]]+)*[A-Za-z_$][A-Za-z0-9_$]*[[:space:]]*\([^)]*\)[[:space:]]*\{' || true)
+  if [[ -n "$method_matches" ]]; then
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      echo "$line" | grep -qE '\b(constructor|set)[[:space:]]*\(' && continue
+      echo "$line" | grep -qE '\)[[:space:]]*:' && continue
+      VIOLATIONS="${VIOLATIONS}TS-002: Public method lacks an explicit return type. Near: ${line}\n"
+    done <<< "$method_matches"
   fi
 }
 
 # -----------------------------------------------------------------------------
-# CHECK: NM-006 — No Hungarian notation
+# NM-006 — No Hungarian notation (type encoded into the name).
 # -----------------------------------------------------------------------------
 check_hungarian_notation() {
   local prefixes='(str[A-Z]|bIs|bHas|bCan|bShould|iCount|iNum|iTotal|nSize|nLen|oObj|szStr|pPtr|aArr|aList)'
   local matches
-  matches=$(echo "$STRIPPED" | grep -nE "(const|let|var|function|param)\s+${prefixes}" || true)
-  if [[ -n "$matches" ]]; then
-    while IFS= read -r line; do
-      VIOLATIONS="${VIOLATIONS}NM-006: Hungarian notation detected. Remove type prefix from name. Near: ${line}\n"
-    done <<< "$matches"
-  fi
-}
-
-# -----------------------------------------------------------------------------
-# CHECK: NM-001a — No single-letter variable names (except i,j,k in loops)
-# -----------------------------------------------------------------------------
-check_single_letter_names() {
-  local matches
-  matches=$(echo "$STRIPPED" | grep -nE '(const|let|var)\s+[a-zA-Z]\s*[=:;,)]' | grep -vE '(const|let|var)\s+[ijk]\s*[=]' || true)
-
-  if [[ -n "$matches" ]]; then
-    local filtered=""
-    while IFS= read -r line; do
-      if ! echo "$line" | grep -qE '^\s*for\s*\('; then
-        filtered="${filtered}${line}\n"
-      fi
-    done <<< "$matches"
-
-    if [[ -n "$filtered" ]]; then
-      while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        VIOLATIONS="${VIOLATIONS}NM-001a: Single-letter variable name. Use an intent-revealing name. Near: ${line}\n"
-      done <<< "$(echo -e "$filtered")"
-    fi
-  fi
-}
-
-# -----------------------------------------------------------------------------
-# CHECK: FN-005 — Max 3 parameters
-# -----------------------------------------------------------------------------
-check_param_count() {
-  [[ "$IS_FULL_FILE" != true ]] && return
-
+  matches=$(echo "$STRIPPED" | grep -nE "(const|let|var|function|param)[[:space:]]+${prefixes}" || true)
+  [[ -z "$matches" ]] && return
   while IFS= read -r line; do
-    VIOLATIONS="${VIOLATIONS}${line}\n"
-  done < <(echo "$CONTENT" | awk '
-    /function\s+\w+\s*\(/ || /^\s*(export\s+)?(async\s+)?function\s/ || /\w+\s*[:=]\s*(async\s+)?\(/ {
-      line = $0
-      lineno = NR
-
-      paren_start = index(line, "(")
-      if (paren_start == 0) next
-
-      depth = 0
-      params = ""
-      started = 0
-      for (i = paren_start; i <= length(line); i++) {
-        c = substr(line, i, 1)
-        if (c == "(") { depth++; started = 1; continue }
-        if (c == ")") { depth--; if (depth == 0) break }
-        if (started && depth > 0) params = params c
-      }
-
-      if (params == "" || params ~ /^\s*$/) next
-
-      count = 1
-      d = 0
-      for (i = 1; i <= length(params); i++) {
-        c = substr(params, i, 1)
-        if (c == "(" || c == "<" || c == "{" || c == "[") d++
-        if (c == ")" || c == ">" || c == "}" || c == "]") d--
-        if (c == "," && d == 0) count++
-      }
-
-      if (count > 3) {
-        name = line
-        gsub(/^\s*(export\s+)?(default\s+)?(async\s+)?/, "", name)
-        gsub(/function\s+/, "", name)
-        gsub(/\s*[:=(].*/, "", name)
-        printf "FN-005:%d: Function '\''%s'\'' has %d parameters (max 3). Group into an object.\n", lineno, name, count
-      }
-    }
-  ')
+    [[ -z "$line" ]] && continue
+    VIOLATIONS="${VIOLATIONS}NM-006: Hungarian notation detected. Remove the type prefix; the name should describe intent, not type. Near: ${line}\n"
+  done <<< "$matches"
 }
 
-# -----------------------------------------------------------------------------
-# CHECK: FN-001 — Functions max 20 lines
-# -----------------------------------------------------------------------------
-check_fn_size() {
-  [[ "$IS_FULL_FILE" != true ]] && return
-
-  while IFS= read -r line; do
-    VIOLATIONS="${VIOLATIONS}${line}\n"
-  done < <(echo "$CONTENT" | awk '
-    /^\s*(export\s+)?(default\s+)?(async\s+)?function\s+\w+/ ||
-    /^\s*(public|private|protected|static|async)\s+(async\s+)?\w+\s*\(/ {
-      if (fn_name != "" && fn_lines > 20) {
-        printf "FN-001:%d: Function '\''%s'\'' is %d lines (max 20). Extract sub-functions.\n", fn_start, fn_name, fn_lines
-      }
-      fn_name = $0
-      gsub(/^\s*(export\s+)?(default\s+)?(async\s+)?/, "", fn_name)
-      gsub(/function\s+/, "", fn_name)
-      gsub(/\s*\(.*/, "", fn_name)
-      fn_start = NR
-      fn_depth = 0
-      fn_lines = 0
-      in_fn = 0
-    }
-
-    /{/ {
-      for (i = 1; i <= length($0); i++) {
-        if (substr($0, i, 1) == "{") {
-          fn_depth++
-          if (!in_fn) in_fn = 1
-        }
-      }
-    }
-
-    in_fn && fn_depth > 0 {
-      if ($0 !~ /^\s*$/ && $0 !~ /^\s*\/\//) fn_lines++
-    }
-
-    /}/ {
-      for (i = 1; i <= length($0); i++) {
-        if (substr($0, i, 1) == "}") fn_depth--
-      }
-      if (in_fn && fn_depth == 0) {
-        if (fn_lines > 20) {
-          printf "FN-001:%d: Function '\''%s'\'' is %d lines (max 20). Extract sub-functions.\n", fn_start, fn_name, fn_lines
-        }
-        fn_name = ""
-        in_fn = 0
-        fn_lines = 0
-      }
-    }
-  ')
-}
-
-# -----------------------------------------------------------------------------
-# CHECK: NM-005a — No magic numbers
-# -----------------------------------------------------------------------------
-check_magic_numbers() {
-  local matches
-  matches=$(echo "$STRIPPED" | grep -nE '[^a-zA-Z_\.]\b[2-9][0-9]*\b|\b[0-9]{2,}\b' \
-    | grep -vE '(const|let|var|type|interface|import|export)\s' \
-    | grep -vE '(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+)' \
-    | grep -vE '\[(0|1)\]' \
-    | grep -vE '^\s*(\/\/|\*)' \
-    | grep -vE '\.(test|spec|stories)\.' \
-    | head -5 || true)
-
-  if [[ -n "$matches" ]]; then
-    while IFS= read -r line; do
-      [[ -z "$line" ]] && continue
-      VIOLATIONS="${VIOLATIONS}NM-005a: Magic number found. Assign to a named constant. Near: ${line}\n"
-    done <<< "$matches"
-  fi
-}
-
-# -----------------------------------------------------------------------------
-# CHECK: FN-001b — Control blocks must be one line
-# -----------------------------------------------------------------------------
-check_block_body() {
-  [[ "$IS_FULL_FILE" != true ]] && return
-
-  while IFS= read -r line; do
-    VIOLATIONS="${VIOLATIONS}${line}\n"
-  done < <(echo "$CONTENT" | awk '
-    /^\s*(if|else if|else|while|for)\s*(\(|{)/ {
-      ctrl_line = NR
-      ctrl_depth = 0
-      in_block = 0
-      body_lines = 0
-
-      # Find opening brace
-      for (i = 1; i <= length($0); i++) {
-        c = substr($0, i, 1)
-        if (c == "{") { ctrl_depth++; in_block = 1 }
-      }
-    }
-
-    in_block && NR > ctrl_line {
-      if ($0 !~ /^\s*$/ && $0 !~ /^\s*[{}]\s*$/) body_lines++
-
-      for (i = 1; i <= length($0); i++) {
-        c = substr($0, i, 1)
-        if (c == "{") ctrl_depth++
-        if (c == "}") ctrl_depth--
-      }
-
-      if (ctrl_depth == 0) {
-        if (body_lines > 1) {
-          printf "FN-001b:%d: Multi-line block body. Extract into a named function.\n", ctrl_line
-        }
-        in_block = 0
-        body_lines = 0
-      }
-    }
-  ')
-}
-
-# -----------------------------------------------------------------------------
-# Run all checks
-# -----------------------------------------------------------------------------
 check_ts_no_any
 check_ts_explicit_return
 check_hungarian_notation
-check_single_letter_names
-check_param_count
-check_fn_size
-check_magic_numbers
-check_block_body
 
-# -----------------------------------------------------------------------------
-# Report
-# -----------------------------------------------------------------------------
 if [[ -n "$VIOLATIONS" ]]; then
   echo -e "Coding standards violations found:\n" >&2
   echo -e "$VIOLATIONS" >&2
-  if [[ -n "$WARNINGS" ]]; then
-    echo -e "\nWarnings (non-blocking):\n" >&2
-    echo -e "$WARNINGS" >&2
-  fi
-  echo -e "\nFix all violations before writing. See coding-standards skill for details." >&2
+  echo -e "Fix all violations before writing. See the coding-standards skill for details." >&2
   exit 2
-fi
-
-if [[ -n "$WARNINGS" ]]; then
-  echo -e "Coding standards warnings:\n" >&2
-  echo -e "$WARNINGS" >&2
-  echo -e "\nThese are non-blocking but should be addressed." >&2
 fi
 
 exit 0

@@ -95,7 +95,10 @@ Interactive elements must be reachable, operable, and clearly labelled.
 ```
 enforcement: agent
 check: For every interactive element introduced in the diff, cite file:line.
-       1. Is any touch target below 44×44px? → MAJOR.
+       1. Is any interactive target smaller than 24×24px (WCAG 2.2 Level AA,
+          SC 2.5.8 Target Size (Minimum))? → MAJOR.
+          Is it 24×24px or larger but smaller than the recommended 44×44px
+          (WCAG Level AAA SC 2.5.5 / Apple HIG)? → MINOR.
        2. Is outline: none or outline: 0 applied without a :focus-visible replacement?
           Removing focus indicators breaks keyboard navigation. → MAJOR.
        3. Are heading levels skipped — e.g. h1 followed by h3 with no h2? → MAJOR.

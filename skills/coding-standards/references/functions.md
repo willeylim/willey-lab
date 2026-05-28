@@ -5,45 +5,40 @@
 
 Clean code principles for functions. Apply to all stacks and languages.
 
-Source: @s4.codes clean code series (12 videos, Jan–Feb 2026)
+Source: Robert C. Martin, *Clean Code: A Handbook of Agile Software Craftsmanship* (2008) — the primary source for these principles. Secondary explainer: the @s4.codes clean-code video series.
 
 ---
 
-## Section A — Hook-Enforced Rules
+## Section A-SELF — Mechanical Rules (Agent Self-Enforced)
 
-Mechanical checks. Run as PreToolUse hooks before every file write — the hook exits 2 to block the write. Cannot be skipped.
+These have deterministic right/wrong answers, but reliably detecting them needs structural and scope understanding that a shell hook cannot do on real TypeScript/JSX (brace counting desyncs on generics, JSX, and braces inside strings; arrow-function consts and modifier-less methods are missed). They are therefore **not** hook-blocked. You MUST self-enforce them with the same rigor as a hook, on every write and review.
 
 ### FN-001
 Functions must not exceed 20 lines (excluding blank lines and comments).
 
 ```
-enforcement: hook
-command: scripts/checks/check-function-size.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol). Script reads tool_input.file_path and derives new content from tool_input fields (content for Write; old_string/new_string for Edit).
-on-fail: exit 2 with stderr "Function '{name}' at {file}:{line} is {count} lines. Maximum is 20. Extract sub-functions."
+enforcement: agent (self-enforced; no hook)
+check: For every function introduced or touched in the diff, cite file:line.
+       Count executable lines (exclude blanks and comments). If > 20 → MAJOR.
+       Extract sub-functions until each reads at one level of abstraction.
 ```
 
 ### FN-001b
 Blocks inside if, else, while, for, and similar control structures must be one line long — always a function call, never inline logic.
 
 ```
-enforcement: hook
-command: scripts/checks/check-block-body-size.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Multi-line block body found at {file}:{line}. Extract the block into a named function."
+enforcement: agent (self-enforced; no hook)
+check: For every control block in the diff, cite file:line. If its body is more
+       than one line of logic → MAJOR. Extract the body into a named function.
 ```
 
 ### FN-005
-Functions must not have more than 3 parameters. 4 or more is always a block.
+Functions must not have more than 3 parameters. 4 or more is always a violation.
 
 ```
-enforcement: hook
-command: scripts/checks/check-param-count.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Function '{name}' at {file}:{line} has {count} parameters. Maximum is 3. Group related parameters into an object/struct."
+enforcement: agent (self-enforced; no hook)
+check: For every function signature in the diff, cite file:line. Count parameters.
+       If > 3 → MAJOR. Group related parameters into an object/struct.
 ```
 
 ---

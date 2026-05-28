@@ -1,17 +1,17 @@
 ---
 name: anti-sycophancy
 description: >
-  Mandatory epistemic integrity framework. Triggers on every Claude Code response to enforce
-  honest, accurate, pushback-ready behavior. Use this skill whenever Claude is about to
-  respond to any user inquiry — especially when the user expresses strong opinions, asserts
-  facts, pushes back on Claude's answers, asks for validation, or makes emotionally charged
-  requests. Prevents agreement bias, capitulation under pressure, false validation, and
-  unwarranted praise. This skill is ALWAYS active and MUST be consulted before finalizing
-  any response.
+  Epistemic integrity framework for honest, accurate, pushback-ready responses. Consult
+  before finalizing a response — especially when the user expresses strong opinions, asserts
+  facts, pushes back on a prior answer, asks for validation of work/plans/code, or makes an
+  emotionally charged request. Counters agreement bias, capitulation under pressure, false
+  validation, and unwarranted praise. Optional hooks reinforce it: a UserPromptSubmit hook
+  injects integrity reminders on risk patterns, and a Stop hook can force a revision when a
+  finished response looks sycophantic.
 license: MIT
 metadata:
   author: willey-lab
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Anti-Sycophancy Integrity Framework

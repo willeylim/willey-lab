@@ -29,30 +29,15 @@ fi
 
 # Found a review — validate it
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="${FACTORY_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-.}}"
-SKILL_SCRIPTS=""
 
-# Look for validate-review.sh in known locations
-for candidate in \
-  "$SCRIPT_DIR/validate-review.sh" \
-  "$SCRIPT_DIR/../skills/coding-standards/scripts/validate-review.sh" \
-  "$PROJECT_DIR/.claude/skills/coding-standards/scripts/validate-review.sh" \
-  "$PROJECT_DIR/.factory/skills/coding-standards/scripts/validate-review.sh" \
-  "$PROJECT_DIR/skills/coding-standards/scripts/validate-review.sh"; do
-  if [[ -f "$candidate" ]]; then
-    SKILL_SCRIPTS="$candidate"
-    break
-  fi
-done
-
-if [[ -z "$SKILL_SCRIPTS" ]]; then
-  echo "validate-review.sh not found — skipping review validation." >&2
+if [[ ! -f "$SCRIPT_DIR/validate-review.sh" ]]; then
+  echo "validate-review.sh not found in $SCRIPT_DIR — skipping review validation." >&2
   exit 0
 fi
 
 # The file was already written by the Write tool, so validate it directly
 if [[ -f "$FILE_PATH" ]]; then
-  bash "$SKILL_SCRIPTS" "$FILE_PATH"
+  bash "$SCRIPT_DIR/validate-review.sh" "$FILE_PATH"
   exit $?
 fi
 
@@ -60,5 +45,5 @@ fi
 TMPFILE=$(mktemp /tmp/review-validate-XXXXXX.md)
 trap 'rm -f "$TMPFILE"' EXIT
 echo "$CONTENT" > "$TMPFILE"
-bash "$SKILL_SCRIPTS" "$TMPFILE"
+bash "$SCRIPT_DIR/validate-review.sh" "$TMPFILE"
 exit $?

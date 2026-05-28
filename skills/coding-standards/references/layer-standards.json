@@ -1,5 +1,5 @@
 {
-  "_comment": "Maps file patterns to layers and their applicable standards files.",
+  "_comment": "Maps file patterns to layers and their applicable standards files. PRECEDENCE: CS-SCOPE (components.md) is applied FIRST as a gating filter — vendor/generated/third-party files it excludes are not routed to any layer or rule. TypeScript rules (typescript.md) apply to ALL .ts/.tsx files, matching the PreToolUse hook; a .tsx file additionally matches the ui layer.",
   "file-patterns": {
     "backend": [
       "*.service.ts", "*.controller.ts", "*.module.ts", "*.guard.ts",
@@ -7,14 +7,11 @@
       "app/Http/**", "app/Models/**", "app/Providers/**"
     ],
     "frontend": [
-      "components/**/*.ts", "components/**/*.tsx",
-      "hooks/**", "use*.ts", "use*.tsx",
-      "utils/**", "lib/**", "types/**"
+      "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"
     ],
     "ui": [
       "*.css", "*.scss", "*.module.css", "*.module.scss",
-      "components/ui/**",
-      "*.tsx", "*.vue", "*.svelte"
+      "*.tsx", "*.jsx", "*.vue", "*.svelte"
     ]
   },
   "layer-standards": {

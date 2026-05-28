@@ -10,12 +10,13 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+GIT_DIR="$(git rev-parse --absolute-git-dir)"
 
 LINTER=""
 for candidate in \
   "$REPO_ROOT/.claude/hooks/lint-file.sh" \
   "$REPO_ROOT/.factory/hooks/lint-file.sh" \
-  "$REPO_ROOT/skills/coding-standards/scripts/lint-file.sh"; do
+  "$GIT_DIR/hooks/coding-standards-lib/lint-file.sh"; do
   if [[ -x "$candidate" ]]; then
     LINTER="$candidate"
     break

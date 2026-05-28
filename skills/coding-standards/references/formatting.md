@@ -5,21 +5,21 @@
 
 Rules for code formatting and file organisation. Apply to all stacks and languages.
 
-Source: @s4.codes clean code series (3 videos)
+Source: Robert C. Martin, *Clean Code: A Handbook of Agile Software Craftsmanship* (2008) — the primary source for these principles. Secondary explainer: the @s4.codes clean-code video series.
 
 ---
 
-## Section A — Hook-Enforced Rules
+## Section A-SELF — Mechanical Rules (Agent Self-Enforced)
 
-Mechanical checks. Run as PreToolUse hooks before every file write — the hook exits 2 to block the write. Cannot be skipped.
+Mechanical in spirit, but requiring scope awareness a shell hook cannot reliably provide. **Not** hook-blocked — self-enforce on every write and review.
 
 ### FMT-003a
 Local variables must be declared close to where they are first used.
 A variable declared more than 5 lines before its first use is flagged.
 
 ```
-enforcement: agent
-note: Requires scope awareness beyond what shell scripts can reliably detect. You must self-enforce this rule.
+enforcement: agent (self-enforced; no hook)
+note: Requires scope awareness beyond what shell scripts can reliably detect. Self-enforce this rule with the same rigor as a hook.
 ```
 
 ---

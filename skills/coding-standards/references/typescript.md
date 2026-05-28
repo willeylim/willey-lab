@@ -13,20 +13,23 @@ Source: TypeScript Handbook, `tsconfig` reference, idiomatic community practice.
 
 ## Section A — Hook-Enforced Rules
 
-Mechanical checks. Run as PreToolUse hooks before every file write — the hook exits 2
-to block the write. Cannot be skipped.
+Mechanical checks the PreToolUse hook (`scripts/coding-standards-check.sh`) detects
+with high precision. It exits 2 to block the write. The script strips comments and
+blanks string/template contents before matching, so `any` inside a string or comment
+does not false-positive.
 
 ### TS-001
-No use of the `any` type. Every occurrence of `: any`, `as any`, or `<any>`
-is a type-safety escape hatch and must be blocked. Use a specific type, a
+No use of the `any` type. `any` in any type position — `: any`, `as any`,
+`<any>`, `any[]`, `Array<any>`, `Record<string, any>`, `Map<K, any>`,
+`x | any` — is a type-safety escape hatch and is blocked. Use a specific type, a
 generic, or `unknown` with a type guard instead.
 
 ```
 enforcement: hook
-command: scripts/checks/check-ts-no-any.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Type 'any' at {file}:{line}. Replace with a specific type, a generic parameter, or 'unknown' with a type guard."
+script: scripts/coding-standards-check.sh → check_ts_no_any()
+trigger: PreToolUse(Write, Create, Edit, ApplyPatch) on .ts/.tsx
+input: tool-call JSON via stdin (Claude Code / Factory hook protocol).
+on-fail: exit 2 with stderr "TS-001: Type 'any' found. Use a specific type, a generic, or 'unknown' with a type guard."
 ```
 
 ### TS-002
@@ -35,11 +38,15 @@ return types on public API surfaces force consumers to infer the contract from
 implementation rather than from the signature.
 
 ```
-enforcement: hook
-command: scripts/checks/check-ts-explicit-return-types.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Exported function '{name}' at {file}:{line} lacks an explicit return type. Declare the return type in the signature."
+enforcement: hook (high-precision subset) + agent (remainder)
+script: scripts/coding-standards-check.sh → check_ts_explicit_return()
+trigger: PreToolUse(Write, Create, Edit, ApplyPatch) on .ts/.tsx
+hook covers: exported function declarations, exported arrow-function consts, and
+       public/private/protected class methods (excluding constructors and setters).
+self-enforce: object-literal methods, modifier-less class methods, and multi-line
+       signatures — the hook intentionally skips these to avoid false positives;
+       you must check them during write/review.
+on-fail: exit 2 with stderr "TS-002: ... lacks an explicit return type."
 ```
 
 ---

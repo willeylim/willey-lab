@@ -130,9 +130,11 @@ check: For every dependency on an infrastructure or external concern introduced 
           High-level code must depend on an interface or abstraction, not a concrete.
        2. Is a concrete class instantiated inside business logic rather than injected
           through an abstraction? → MAJOR.
-       3. Does a unit test have to mock a concrete class (not an interface) because
-          the dependency was not inverted? → MINOR. This is evidence of a DIP violation
-          in the production code.
+       3. If test files are in scope: does a unit test have to mock a concrete
+          class (not an interface) because the dependency was not inverted? → MINOR
+          (evidence of a DIP violation in production code). If no test files are in
+          scope, skip this sub-check — do not infer a test's shape from production
+          code alone.
 evidence-required: yes
 ```
 

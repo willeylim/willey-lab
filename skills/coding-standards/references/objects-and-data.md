@@ -5,21 +5,21 @@
 
 Rules for designing classes, data structures, and their boundaries. Apply to all stacks and languages.
 
-Source: @s4.codes clean code series (4 videos)
+Source: Robert C. Martin, *Clean Code: A Handbook of Agile Software Craftsmanship* (2008) — the primary source for these principles. Secondary explainer: the @s4.codes clean-code video series.
 
 ---
 
-## Section A — Hook-Enforced Rules
+## Section A-SELF — Mechanical Rules (Agent Self-Enforced)
 
-Mechanical checks. Run as PreToolUse hooks before every file write — the hook exits 2 to block the write. Cannot be skipped.
+Mechanical in spirit, but too false-positive-prone for shell-based hook enforcement (builder patterns, fluent APIs, test chains all look like deep chains). **Not** hook-blocked — self-enforce on every write and review.
 
 ### OD-003a
 Method call chains must not reach more than 2 objects deep on real objects.
 Chaining through returned objects (a.getB().getC().doThing()) violates the Law of Demeter.
 
 ```
-enforcement: agent
-note: Too many false positives for shell-based hook enforcement (builder patterns, fluent APIs, test chains). You must self-enforce this rule.
+enforcement: agent (self-enforced; no hook)
+note: Too many false positives for shell-based enforcement (builder patterns, fluent APIs, test chains). Self-enforce this rule with the same rigor as a hook.
 ```
 
 ---

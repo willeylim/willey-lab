@@ -1,7 +1,13 @@
 #!/bin/bash
 # =============================================================================
-# Coding Standards Review Validator
-# Checks that a review output covers every applicable rule for the diff.
+# Coding Standards Review COVERAGE gate
+# Checks that a review output *covers* every applicable rule for the diff, and
+# that any MAJOR/MINOR finding carries a `file:line` citation.
+#
+# This validates COVERAGE, not CORRECTNESS. It cannot tell whether a finding is
+# right, shallow, or fabricated — an agent that reports "PASS" for every rule
+# will pass this gate. Correctness is the agent's responsibility; this is a
+# completeness checklist, not a proof of a good review.
 #
 # Usage:
 #   validate-review.sh <review-file>                  # auto-detect diff base
@@ -75,61 +81,55 @@ if [[ -z "$CHANGED_FILES" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Determine layers from file patterns
+# Determine which rule families apply, from file types.
+#
+# Families are orthogonal, not a backend/frontend/ui hierarchy:
+#   HAS_CODE      any executable source  -> clean-code family (FN/NM/EH/OD/FMT/DP)
+#   HAS_TS        any .ts/.tsx           -> TypeScript family (TS-*) — matches the
+#                                           PreToolUse hook, which runs on ALL .ts/.tsx
+#   HAS_COMPONENT any UI component file  -> Component family (CS-*)
+#   HAS_UI        any visual surface     -> UI/UX family (UI-*)
+# CS-SCOPE is always expected; the agent applies it first to exclude vendor files.
 # ---------------------------------------------------------------------------
-HAS_BACKEND=false
-HAS_FRONTEND=false
+HAS_CODE=false
+HAS_TS=false
+HAS_COMPONENT=false
 HAS_UI=false
 
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
 
-  # Skip non-code files
   if [[ ! "$file" =~ \.(ts|tsx|js|jsx|py|go|rs|php|vue|svelte|css|scss)$ ]]; then
     continue
   fi
 
-  # Backend patterns
-  if [[ "$file" =~ \.(service|controller|module|guard|pipe|decorator)\.(ts|js)$ ]] ||
-     [[ "$file" =~ \.(go|rs|php|py)$ ]] ||
-     [[ "$file" =~ ^app/Http/ ]] ||
-     [[ "$file" =~ ^app/Models/ ]] ||
-     [[ "$file" =~ ^app/Providers/ ]]; then
-    HAS_BACKEND=true
+  if [[ "$file" =~ \.(ts|tsx|js|jsx|py|go|rs|php|vue|svelte)$ ]]; then
+    HAS_CODE=true
   fi
-
-  # Frontend patterns
-  if [[ "$file" =~ components/.*\.(ts|tsx)$ ]] ||
-     [[ "$file" =~ hooks/ ]] ||
-     [[ "$file" =~ /use[A-Z].*\.(ts|tsx)$ ]] ||
-     [[ "$file" =~ ^use[A-Z].*\.(ts|tsx)$ ]] ||
-     [[ "$file" =~ utils/ ]] ||
-     [[ "$file" =~ lib/ ]] ||
-     [[ "$file" =~ types/ ]]; then
-    HAS_FRONTEND=true
+  if [[ "$file" =~ \.(ts|tsx)$ ]]; then
+    HAS_TS=true
   fi
-
-  # UI patterns
-  if [[ "$file" =~ \.(css|scss)$ ]] ||
-     [[ "$file" =~ components/ui/ ]] ||
-     [[ "$file" =~ \.(tsx|vue|svelte)$ ]]; then
+  if [[ "$file" =~ \.(tsx|jsx|vue|svelte)$ ]] || [[ "$file" =~ (^|/)components/ ]]; then
+    HAS_COMPONENT=true
+  fi
+  if [[ "$file" =~ \.(tsx|jsx|vue|svelte|css|scss)$ ]]; then
     HAS_UI=true
   fi
 done <<< "$CHANGED_FILES"
 
-if [[ "$HAS_BACKEND" == false && "$HAS_FRONTEND" == false && "$HAS_UI" == false ]]; then
-  echo "No code files matched any layer pattern. Review validation skipped."
+if [[ "$HAS_CODE" == false && "$HAS_TS" == false && "$HAS_COMPONENT" == false && "$HAS_UI" == false ]]; then
+  echo "No code files matched any rule family. Review validation skipped."
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Build expected rule set per layer
+# Build expected rule set per family
 # ---------------------------------------------------------------------------
 EXPECTED_RULES=()
 
 EXPECTED_RULES+=("CS-SCOPE")
 
-BACKEND_RULES=(
+CLEANCODE_RULES=(
   FN-001 FN-001b FN-002 FN-003 FN-004 FN-005 FN-005b
   FN-006 FN-006b FN-006c FN-007 FN-008 FN-009
   FN-010 FN-010b FN-011
@@ -140,9 +140,12 @@ BACKEND_RULES=(
   DP-001 DP-002 DP-003 DP-004 DP-005 DP-006 DP-007
 )
 
-FRONTEND_RULES=(
-  CS-001 CS-002 CS-003 CS-004 CS-005 CS-006 CS-007 CS-008
+TS_RULES=(
   TS-001 TS-002 TS-003 TS-004 TS-005 TS-006 TS-007 TS-008 TS-009
+)
+
+COMPONENT_RULES=(
+  CS-001 CS-002 CS-003 CS-004 CS-005 CS-006 CS-007 CS-008
 )
 
 UI_RULES=(
@@ -150,17 +153,10 @@ UI_RULES=(
   UI-007 UI-008 UI-009 UI-010 UI-011 UI-012 UI-013 UI-014 UI-015
 )
 
-if [[ "$HAS_BACKEND" == true || "$HAS_FRONTEND" == true ]]; then
-  EXPECTED_RULES+=("${BACKEND_RULES[@]}")
-fi
-
-if [[ "$HAS_FRONTEND" == true ]]; then
-  EXPECTED_RULES+=("${FRONTEND_RULES[@]}")
-fi
-
-if [[ "$HAS_UI" == true ]]; then
-  EXPECTED_RULES+=("${UI_RULES[@]}")
-fi
+[[ "$HAS_CODE"      == true ]] && EXPECTED_RULES+=("${CLEANCODE_RULES[@]}")
+[[ "$HAS_TS"        == true ]] && EXPECTED_RULES+=("${TS_RULES[@]}")
+[[ "$HAS_COMPONENT" == true ]] && EXPECTED_RULES+=("${COMPONENT_RULES[@]}")
+[[ "$HAS_UI"        == true ]] && EXPECTED_RULES+=("${UI_RULES[@]}")
 
 # Deduplicate
 readarray -t EXPECTED_RULES < <(printf '%s\n' "${EXPECTED_RULES[@]}" | sort -u)
@@ -210,14 +206,15 @@ done < <(grep -E '^\*\*\[' <<< "$REVIEW" || true)
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
-LAYERS=""
-[[ "$HAS_BACKEND" == true ]] && LAYERS="${LAYERS}backend "
-[[ "$HAS_FRONTEND" == true ]] && LAYERS="${LAYERS}frontend "
-[[ "$HAS_UI" == true ]] && LAYERS="${LAYERS}ui "
+FAMILIES=""
+[[ "$HAS_CODE" == true ]] && FAMILIES="${FAMILIES}clean-code "
+[[ "$HAS_TS" == true ]] && FAMILIES="${FAMILIES}typescript "
+[[ "$HAS_COMPONENT" == true ]] && FAMILIES="${FAMILIES}components "
+[[ "$HAS_UI" == true ]] && FAMILIES="${FAMILIES}ui "
 
-echo "=== Coding Standards Review Validation ==="
+echo "=== Coding Standards Review Coverage ==="
 echo ""
-echo "Layers detected: ${LAYERS}"
+echo "Rule families: ${FAMILIES}"
 echo "Changed files: $(echo "$CHANGED_FILES" | wc -l | tr -d ' ')"
 echo "Rules expected: ${TOTAL}"
 echo "Rules found:    ${FOUND_COUNT}"
@@ -254,5 +251,6 @@ if [[ ${#UNCITED[@]} -gt 0 ]]; then
   exit 0
 fi
 
-echo "PASS — All ${TOTAL} applicable rules covered."
+echo "PASS — coverage complete: all ${TOTAL} applicable rules reported with citations."
+echo "(Coverage gate only — it does not verify that each finding is correct.)"
 exit 0

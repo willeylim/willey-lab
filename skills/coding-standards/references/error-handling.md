@@ -5,7 +5,7 @@
 
 Rules for writing clean, maintainable error handling. Apply to all stacks and languages.
 
-Source: @s4.codes clean code series (2 videos)
+Source: Robert C. Martin, *Clean Code: A Handbook of Agile Software Craftsmanship* (2008) — the primary source for these principles. Secondary explainer: the @s4.codes clean-code video series.
 
 Note: FN-010 (prefer exceptions over error codes) and FN-010b (extract try/catch into
 its own function) in functions.md are the foundation. The rules here build on top of them.
@@ -64,13 +64,19 @@ to throw. The contract must be defined before the implementation.
 
 ```
 enforcement: agent
+applicability: Point 2 (test coverage) applies ONLY when test files are in the
+       diff/scope. Tests usually live in separate files; if none are in scope you
+       cannot see them, so do NOT emit a MAJOR for "missing test" — instead flag
+       it for verification. Points 1 and 3 always apply.
 check: For every new function in the diff that contains a try/catch block, cite file:line.
        1. Does the try/catch define a clear, named exception type that callers can
           depend on? If the catch re-throws a vague or generic exception with no
           domain meaning → MAJOR.
-       2. Is there a corresponding test that verifies the failure case — that the
-          function throws the expected exception when something goes wrong?
-          If a try/catch exists but no test covers the failure path → MAJOR.
+       2. If test files are in scope: is there a test that verifies the failure
+          case — that the function throws the expected exception when something
+          goes wrong? If a failure path has no covering test → MAJOR.
+          If no test files are in scope: do not emit MAJOR; report
+          "failure path needs a test — not visible in this diff" for verification.
        3. Does anything added inside the try block fall outside the original
           contract — introducing new failure modes that the catch does not handle?
           If yes → MAJOR.

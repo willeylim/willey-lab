@@ -5,52 +5,53 @@
 
 Rules for naming variables, functions, classes, and constants. Apply to all stacks and languages.
 
-Source: @s4.codes clean code series (7 videos)
+Source: Robert C. Martin, *Clean Code: A Handbook of Agile Software Craftsmanship* (2008) — the primary source for these principles. Secondary explainer: the @s4.codes clean-code video series.
 
 ---
 
 ## Section A — Hook-Enforced Rules
 
-Mechanical checks. Run as PreToolUse hooks before every file write — the hook exits 2 to block the write. Cannot be skipped.
-
-### NM-001a
-Single-letter variable names are only acceptable for: (a) loop counters (i, j, k),
-or (b) local variables inside short methods (under 20 lines) where the context makes
-the meaning immediately obvious. All other single-letter names are blocked.
-
-```
-enforcement: hook
-command: scripts/checks/check-single-letter-names.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Single-letter name '{name}' at {file}:{line}. Single letters are only allowed for loop counters (i, j, k) or locals in short methods where context is obvious. Use an intention-revealing name."
-```
-
-### NM-005a
-Magic number literals must be named constants. Raw numeric values in expressions
-(other than 0 and 1 in simple increment/null checks) are blocked.
-
-```
-enforcement: hook
-command: scripts/checks/check-magic-numbers.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Magic number '{value}' at {file}:{line}. Assign it to a named constant that reveals what the number represents."
-```
+A mechanical check the PreToolUse hook detects with high precision. The hook (`scripts/coding-standards-check.sh`) exits 2 to block the write.
 
 ### NM-006
 No Hungarian notation — do not encode the type into the variable name.
 
 ```
 enforcement: hook
-command: scripts/checks/check-hungarian-notation.sh
-trigger: PreToolUse(Write, Edit)
-input: JSON via stdin (Claude Code hook protocol).
-on-fail: exit 2 with stderr "Hungarian notation detected in '{name}' at {file}:{line}. Remove the type prefix. Your IDE shows types on hover; the name should describe intent, not type."
+script: scripts/coding-standards-check.sh → check_hungarian_notation()
+trigger: PreToolUse(Write, Create, Edit, ApplyPatch)
+input: tool-call JSON via stdin (Claude Code / Factory hook protocol).
+on-fail: exit 2 with stderr "Hungarian notation detected ... Remove the type prefix; the name should describe intent, not type."
 ```
 
-Patterns to block: `str_`, `b_`, `i_`, `n_`, `o_`, `sz_`, `p_`, `h_`, `m_`,
-`strName`, `bActive`, `iCount`, `nSize`, `oObject`, `aList` and similar type-prefix patterns.
+Detected prefixes: `strName`, `bIsActive`/`bHas…`/`bCan…`/`bShould…`, `iCount`/`iNum`/`iTotal`, `nSize`/`nLen`, `oObj`, `szStr`, `pPtr`, `aArr`/`aList`.
+
+---
+
+## Section A-SELF — Mechanical Rules (Agent Self-Enforced)
+
+Deterministic in spirit, but reliably detecting them needs scope and semantic context a shell hook lacks — a hook would block idiomatic code (`const t = useTranslations()`, every Tailwind numeric utility) while missing real cases. They are **not** hook-blocked. You MUST self-enforce them on every write and review.
+
+### NM-001a
+Single-letter variable names are only acceptable for: (a) loop counters (i, j, k), or (b) local variables inside short scopes where the context makes the meaning immediately obvious. All other single-letter names are violations.
+
+```
+enforcement: agent (self-enforced; no hook)
+check: For every variable/parameter introduced in the diff, cite file:line.
+       If a single-letter name is used outside a loop counter or an obvious
+       short-scope local → MAJOR. Use an intention-revealing name.
+```
+
+### NM-005a
+Magic number literals must be named constants. Raw numeric values used in logic (other than 0 and 1 in simple increment/index/null checks) are violations.
+
+```
+enforcement: agent (self-enforced; no hook)
+check: For every numeric literal used in logic in the diff, cite file:line.
+       Exclude framework/style tokens (e.g. Tailwind class numbers), array
+       indices, and 0/1. If a raw number encodes a rule, limit, timeout, or
+       other magic value → MAJOR. Assign it to a named constant.
+```
 
 ---
 
